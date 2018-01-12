@@ -1,0 +1,12 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+		<groupId>com.kingbase.db.tools</groupId>
+		<artifactId>com.kingbase.db.tools.parent</artifactId>
+		<version>8.2.0</version>
+		<relativePath>../com.kingbase.db.tools.parent/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>com.kingbase.db.deploy.bundle</artifactId>
+	<packaging>eclipse-plugin</packaging>
+</project>

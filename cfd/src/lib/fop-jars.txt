@@ -1,0 +1,41 @@
+/* ----------------------------------------
+ * 以下是由于FOP而额外添加的jar包
+ ---------------------------------------- */
+avalon-framework-4.2.0.jar
+batik-all-1.7.jar
+bcprov-jdk16-139.jar
+commons-io-1.3.1.jar
+customizer.jar
+fop.jar
+itext-1.3.jar
+jai_codec.jar
+jai_core.jar
+jmf.jar
+jpedal.jar
+js.jar
+l2fprod-common-all.jar
+mediaplayer.jar
+mlibwrapper_jai.jar
+multiplayer.jar
+serializer-2.7.0.jar
+xalan-2.7.0.jar
+xercesImpl-2.7.1.jar
+xml-apis-1.3.04.jar
+xml-apis-ext-1.3.04.jar
+xmlgraphics-commons-1.3.1.jar
+
+/* ----------------------------------------
+ * 注意：
+ ---------------------------------------- */
+common-io.jar	由于FOP依赖于特定的类，而将该jar替换成了 commons-io-1.3.1.jar，原始的common-io.jar已更名为：commons-io.jar.bak。
+common-io.jar的MANIFEST.MF文件的内容：
+	Manifest-Version: 1.0
+	Ant-Version: Apache Ant 1.6.2
+	Created-By: 1.3.1_16-b06 (Sun Microsystems Inc.)
+	Extension-Name: commons-io
+	Specification-Title: Commons IO
+	Specification-Vendor: Apache Software Foundation
+	Specification-Version: 1.1
+	Implementation-Title: org.apache.commons.io
+	Implementation-Vendor: Apache Software Foundation
+	Implementation-Version: 1.1

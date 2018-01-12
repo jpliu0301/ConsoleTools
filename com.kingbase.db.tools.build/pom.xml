@@ -1,0 +1,28 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>com.kingbase.db.tools</groupId>
+		<artifactId>com.kingbase.db.tools.parent</artifactId>
+		<version>8.2.0</version>
+		<relativePath>../com.kingbase.db.tools.parent/pom.xml</relativePath>
+	</parent>
+
+	<artifactId>com.kingbase.db.tools.build</artifactId>
+	<packaging>pom</packaging>
+	
+	
+	<modules>
+		<!--
+		<module>../com.kingbase.db.replication.bundle</module>
+		<module>../com.kingbase.db.deploy.bundle</module>
+		-->
+		<module>../com.kingbase.db.@@TOOL_NAME@@.bundle</module>
+		<module>../com.kingbase.db.tools.application</module>
+		<module>../com.kingbase.db.tools.core</module>
+		<module>../com.kingbase.db.tools.feature</module>
+		<module>../com.kingbase.db.tools.product</module>
+		<module>../com.kingbase.db.tools.help</module>
+	</modules>
+</project>

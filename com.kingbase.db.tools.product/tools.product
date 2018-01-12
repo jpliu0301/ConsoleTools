@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?pde version="3.5"?>
+
+<product name="tools" uid="tools" id="com.kingbase.db.tools.application.product" application="com.kingbase.db.tools.application.application" version="8.2.0" useFeatures="true" includeLaunchers="true">
+
+   <configIni use="default">
+   </configIni>
+
+   <launcherArgs>
+      <programArgs>--showsplash
+      </programArgs>
+      <vmArgsMac>-XstartOnFirstThread -Dorg.eclipse.swt.internal.carbon.smallFonts
+      </vmArgsMac>
+   </launcherArgs>
+
+   <windowImages/>
+
+   <splash
+      location="com.kingbase.db.tools.application" />
+   <launcher name="@@TOOL_NAME@@">
+      <linux icon="icons/tools.xpm"/>
+      <solaris/>
+      <win useIco="false">
+         <bmp
+            winSmallHigh="/icons/tools-16x16x32.bmp"
+            winSmallLow="/icons/tools-16x16x8.bmp"
+            winMediumHigh="/icons/tools-32x32x32.bmp"
+            winMediumLow="/icons/tools-32x32x8.bmp"
+            winLargeHigh="/icons/tools-48x48x32.bmp"
+            winLargeLow="/icons/tools-48x48x8.bmp"
+            winExtraLargeHigh="/icons/tools-256x256x32.bmp"/>
+      </win>
+   </launcher>
+
+   <vm>
+      <windows include="false">org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8</windows>
+   </vm>
+
+   <plugins>
+   </plugins>
+
+   <features>
+      <feature id="org.eclipse.rcp"/>
+      <feature id="org.eclipse.emf.ecore"/>
+      <feature id="org.eclipse.emf.common"/>
+      <feature id="org.eclipse.e4.rcp"/>
+      <feature id="com.kingbase.db.tools.feature" version="8.2.0"/>
+      <feature id="org.eclipse.help"/>
+      <feature id="org.eclipse.babel.nls_eclipse_zh" version="4.4.0.v20161126102919"/>
+   </features>
+
+   <configurations>
+      <plugin id="org.eclipse.core.runtime" autoStart="true" startLevel="0" />
+      <plugin id="org.eclipse.equinox.common" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.equinox.ds" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.equinox.event" autoStart="true" startLevel="2" />
+      <plugin id="org.eclipse.equinox.p2.reconciler.dropins" autoStart="true" startLevel="0" />
+      <plugin id="org.eclipse.equinox.simpleconfigurator" autoStart="true" startLevel="1" />
+   </configurations>
+
+</product>

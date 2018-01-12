@@ -1,0 +1,147 @@
+/**
+ * 
+ */
+package com.kingbase.db.console.bundle.model.tree;
+
+import java.sql.Connection;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.dom4j.Document;
+import org.dom4j.DocumentException;
+import org.dom4j.Element;
+import org.dom4j.io.SAXReader;
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IFolder;
+import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IResource;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.swt.graphics.Image;
+import org.pentaho.di.viewer.CTableTreeNode;
+import org.pentaho.di.viewer.ITreeProvider;
+
+import com.kingbase.db.console.bundle.KBConsoleCore;
+import com.kingbase.db.console.bundle.views.ConsoleView;
+import com.kingbase.db.core.util.ImageURL;
+import com.kingbase.db.core.util.UIUtils;
+
+/**
+ * @author Duke
+ *
+ */
+public class ConsoleRoot extends CTableTreeNode implements ITreeProvider {
+
+	private boolean hasInit = false;
+    public static final Image image = ImageURL.createImage(KBConsoleCore.PLUGIN_ID, ImageURL.replication);
+	private IProject project = null;
+
+	public ConsoleRoot(IProject project) {
+		this.project = project;
+	}
+
+	@Override
+	public Image getImage(Object arg0) {
+		return image;
+	}
+
+	@Override
+	public String getText(Object arg0) {
+		return "KB控制台";
+	}
+
+	protected boolean isOpen() {
+		return hasInit;
+	}
+
+	public boolean hasChildren() {
+		if (!hasInit)
+			return true;
+		return super.hasChildren();
+	}
+
+	protected void setHasInit(boolean hasInit) {
+		this.hasInit = hasInit;
+	}
+
+	public void refresh() {
+		setHasInit(false);
+		removeAll();
+		treeExpanded();
+	}
+
+	public void treeExpanded() {
+		if (isOpen()) {
+			return;
+		}
+		try {
+			IResource[] resources = project.members();
+			for (int i = 0; i < resources.length; i++) {
+				IResource res = (IResource) resources[i];
+				if (res instanceof IFolder) {
+					IFolder folder = (IFolder) res;
+					if (folder.getName().equals("backupSet")) {
+						ConsoleFile childFolder = new ConsoleFile(folder);
+						this.addChild(childFolder);
+					}
+					else if (folder.getName().equals("serviceManagement")) {
+						ServiceManagementEntity childFolder = new ServiceManagementEntity(folder);
+						this.addChild(childFolder);
+					} /*else if(folder.getName().equals("ioTuning")){
+						IoTuning childFolder = new IoTuning(folder);
+						this.addChild(childFolder);
+					}*/ else if (folder.getName().equals("logAnalysis")) {
+						LogAnalysis childFolder = new LogAnalysis(folder);
+						List<LogAnalysis> logAnalysis = getLogAnalysis(folder);
+						if (logAnalysis == null || logAnalysis.size() == 0) {
+							this.addChild(childFolder);
+						}else{
+							this.addChild(logAnalysis.get(0));
+						}
+					}
+
+				}
+			}
+		} catch (CoreException e) {
+			e.printStackTrace();
+		}
+		setHasInit(true);
+	}
+
+	private List<LogAnalysis> getLogAnalysis(IFolder folder) {
+
+		IFile file = (IFile) folder.findMember("logAnalysis.xml");
+		List<LogAnalysis> list = new ArrayList<LogAnalysis>();
+		if (!file.exists()) {
+			return null;
+		}
+		SAXReader reader = new SAXReader();
+		List<Element> listEle = null;
+		Document document;
+		try {
+			document = reader.read(file.getLocation().toFile());
+			Element root = document.getRootElement();
+			listEle = root.elements();
+		} catch (DocumentException e) {
+			e.printStackTrace();
+			MessageDialog.openError(UIUtils.getActiveShell(), "错误", e.getMessage()); //$NON-NLS-1$
+		}
+		for (int i = 0, n = listEle.size(); i < n; i++) {
+			LogAnalysis logAnalysis = new LogAnalysis(folder);
+			Element element = listEle.get(i);
+
+			logAnalysis.setDriverName(element.element("driverName").getStringValue());
+			logAnalysis.setDriverPath(element.element("driverPath").getStringValue());
+			logAnalysis.setDatabase(element.element("database").getStringValue());
+			logAnalysis.setAddress(element.element("address").getStringValue());
+			logAnalysis.setPort(element.element("port").getStringValue());
+			logAnalysis.setUser(element.element("user").getStringValue());
+			logAnalysis.setPassword(element.element("password").getStringValue());
+
+			Connection connection = ConsoleView.getConnection(logAnalysis); // $NON-NLS-1$
+			logAnalysis.setConnection(connection);
+			list.add(logAnalysis);
+		}
+		return list;
+	}
+}

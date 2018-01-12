@@ -1,0 +1,11 @@
+source.. = src/
+bin.includes = plugin.xml,\
+               META-INF/,\
+               .,\
+               icons/,\
+               templates/,\
+               driver/kingbase8-8.2.0.jar,\
+               lib/log4j-api-2.8.2.jar,\
+               lib/log4j-core-2.8.2.jar,\
+               lib/log4j-slf4j-impl-2.8.2.jar,\
+               lib/slf4j-api-1.7.25.jar

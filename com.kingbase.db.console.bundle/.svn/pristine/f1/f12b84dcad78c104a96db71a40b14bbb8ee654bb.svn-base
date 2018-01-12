@@ -1,0 +1,726 @@
+package com.kingbase.db.console.bundle.editor;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.viewers.IStructuredContentProvider;
+import org.eclipse.jface.viewers.ITableLabelProvider;
+import org.eclipse.jface.viewers.LabelProvider;
+import org.eclipse.jface.viewers.TableViewer;
+import org.eclipse.jface.viewers.Viewer;
+import org.eclipse.jface.window.Window;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.custom.SashForm;
+import org.eclipse.swt.custom.StyledText;
+import org.eclipse.swt.events.ModifyEvent;
+import org.eclipse.swt.events.ModifyListener;
+import org.eclipse.swt.events.SelectionAdapter;
+import org.eclipse.swt.events.SelectionEvent;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Dialog;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Group;
+import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Monitor;
+import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.widgets.Table;
+import org.eclipse.swt.widgets.TableColumn;
+import org.eclipse.swt.widgets.Text;
+import org.eclipse.ui.IEditorInput;
+import org.eclipse.ui.IEditorSite;
+import org.eclipse.ui.PartInitException;
+import org.eclipse.ui.forms.IManagedForm;
+import org.eclipse.ui.forms.ManagedForm;
+import org.eclipse.ui.forms.widgets.FormToolkit;
+import org.eclipse.ui.forms.widgets.ScrolledForm;
+import org.eclipse.ui.part.EditorPart;
+import org.pentaho.di.viewer.CTableTreeNode;
+
+import com.kingbase.db.console.bundle.model.tree.ConsoleBackupSet;
+import com.kingbase.db.console.bundle.model.tree.ConsoleBackups;
+import com.kingbase.db.core.editorinput.DataBaseInput;
+import com.kingbase.db.core.util.UIUtils;
+
+public class CheckBackupSetEditor extends EditorPart {
+	public static final String ID = "com.kingbase.db.console.bundle.editor.CheckBackupSetEditor";
+	private final List<String> commands = new ArrayList<String>();
+	private TableViewer tableViewer;
+	private StyledText txtDetail;
+	private DataBaseInput input;
+	private List<List<String>> listFile = new ArrayList<List<String>>();
+	private String CMDPATH;
+	private String suss = "";
+	private ConsoleBackupSet backupSet;
+	private Button btnRestore;
+	private Button btnCreate;
+	private Button btnClear;
+	private Button btnDelete;
+
+	public CheckBackupSetEditor() {
+	}
+
+	@Override
+	public void init(IEditorSite site, IEditorInput input) throws PartInitException {
+		setSite(site);
+		setInput(input);
+		setPartName(input.getName());
+		this.input = (DataBaseInput) input;
+		CTableTreeNode node = this.input.getNode();
+		if (node instanceof ConsoleBackupSet) {
+			this.backupSet = (ConsoleBackupSet) node;
+			CMDPATH = backupSet.getClientPath() + File.separator + "sys_rman";
+			CMDPATH = CMDPATH.replace('\\', '/');
+		}
+	}
+
+	@Override
+	public void createPartControl(Composite parent) {
+		GridLayout layout1 = new GridLayout();
+		layout1.marginTop = 6;
+		layout1.marginLeft = 7;
+		layout1.marginRight = 7;
+		layout1.marginBottom = 11;
+		parent.setLayout(layout1);
+		parent.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+		SashForm form = new SashForm(parent, SWT.VERTICAL);
+		form.setLayout(new GridLayout());
+		form.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+
+		Group group1 = new Group(form, SWT.WRAP);
+		group1.setText("备份列表");
+		group1.setLayout(new GridLayout());
+		group1.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		group1.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+		tableViewer = new TableViewer(group1, SWT.BORDER | SWT.MULTI | SWT.FULL_SELECTION);
+		GridData data = new GridData(GridData.FILL_BOTH);
+		final Table table = tableViewer.getTable();
+		table.setLinesVisible(true);
+		table.setHeaderVisible(true);
+		table.setLayoutData(data);
+
+		// 设置表列
+		String[] string = new String[] { "ID", "Recovery time", "Mode", "Current/Parent TLI", "Time", "Data",
+				"Status" };
+		for (int i = 0; i < string.length; i++) {
+			TableColumn column = new TableColumn(table, SWT.CENTER);
+			column.setText(string[i]);
+			if (i == 0) {
+				column.setWidth(100);
+			} else if (i == 1 || i == 3) {
+				column.setWidth(180);
+			} else {
+				column.setWidth(90);
+			}
+		}
+
+		tableViewer.setContentProvider(new ContentProvider());
+		tableViewer.setLabelProvider(new TableBackupProvider());
+
+		Group group2 = new Group(form, SWT.WRAP);
+		group2.setText("详细信息");
+		group2.setLayout(new GridLayout());
+		group2.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 1, 1));
+		group2.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+		txtDetail = new StyledText(group2, SWT.V_SCROLL | SWT.BORDER);
+		txtDetail.setTextLimit(4000);
+		GridData grid1 = new GridData(GridData.FILL_HORIZONTAL | GridData.FILL_VERTICAL);
+		txtDetail.setLayoutData(grid1);
+
+		form.setWeights(new int[] { 4, 7 });
+
+		Composite compOpera = new Composite(parent, SWT.NONE);
+		compOpera.setLayout(new GridLayout(6, false));
+		GridData data11 = new GridData(GridData.FILL_HORIZONTAL);
+		compOpera.setLayoutData(data11);
+		Label label11 = new Label(compOpera, SWT.None);
+		label11.setText("");
+		data11 = new GridData(GridData.FILL_HORIZONTAL);
+		data11.horizontalSpan = 1;
+		label11.setLayoutData(data11);
+		compOpera.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+		label11.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+		btnCreate = new Button(compOpera, SWT.PUSH);
+		btnCreate.setText("新建备份");
+		data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+		btnCreate.setLayoutData(data11);
+		((GridData) btnCreate.getLayoutData()).widthHint = 75;
+		btnCreate.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+
+				ConsoleBackups backupView = new ConsoleBackups();
+				backupView.setBackupSetName(backupSet.getBackupSetName());
+				backupView.setBackupSetPath(backupSet.getBackupSetPath());
+				backupView.setDatabasePath(backupSet.getDatabasePath());
+				backupView.setClientPath(backupSet.getClientPath());
+				
+				backupView.setAddress(backupSet.getAddress());
+				backupView.setUser(backupSet.getUser());
+				backupView.setPassword(backupSet.getPassword());
+				backupView.setPort(backupSet.getPort());
+
+				CreatebackupDialog dialog = new CreatebackupDialog(parent.getShell(), input, backupView, CMDPATH);
+				boolean returnCode = dialog.open();
+				if (returnCode) {
+					initBackupData();
+					if (listFile.size() > 0) {
+						tableViewer.setInput(listFile);
+					} else {
+						tableViewer.setInput(null);
+					}
+					tableViewer.refresh();
+					txtDetail.setText("");
+				}
+			}
+		});
+
+		btnRestore = new Button(compOpera, SWT.PUSH);
+		btnRestore.setText("还原");
+		data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+		btnRestore.setLayoutData(data11);
+		((GridData) btnRestore.getLayoutData()).widthHint = 61;
+		btnRestore.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				int index = tableViewer.getTable().getSelectionIndex();
+				if (index == -1) {
+					return;
+				}
+				ConsoleBackups backupView = new ConsoleBackups();
+				backupView.setBackupSetName(backupSet.getBackupSetName());
+				backupView.setBackupSetPath(backupSet.getBackupSetPath());
+				backupView.setDatabasePath(backupSet.getDatabasePath());
+				backupView.setClientPath(backupSet.getClientPath());
+				backupView.setAddress(backupSet.getAddress());
+				backupView.setUser(backupSet.getUser());
+				backupView.setPassword(backupSet.getPassword());
+				backupView.setPort(backupSet.getPort());
+				
+				List<String> strList = (List<String>) tableViewer.getElementAt(index);
+				backupView.setBackupName(strList.get(0));
+
+				BackupRestoreDialog dialog = new BackupRestoreDialog(UIUtils.getActiveShell(), input, backupView,
+						 txtDetail.getText(), CMDPATH);
+				dialog.open();
+			}
+		});
+		
+		btnClear = new Button(compOpera, SWT.PUSH);
+		btnClear.setText("清除");
+		data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+		btnClear.setLayoutData(data11);
+		((GridData) btnClear.getLayoutData()).widthHint = 61;
+		btnClear.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				ClearDialog dialog = new ClearDialog(parent.getShell());
+				boolean returnCode = dialog.open();
+				if (returnCode) {
+					initBackupData();
+					if (listFile.size() > 0) {
+						tableViewer.setInput(listFile);
+					} else {
+						tableViewer.setInput(null);
+					}
+					tableViewer.refresh();
+					txtDetail.setText("");
+				}
+			}
+		});
+
+		btnDelete = new Button(compOpera, SWT.PUSH);
+		btnDelete.setText("删除");
+		data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+		btnDelete.setLayoutData(data11);
+		((GridData) btnDelete.getLayoutData()).widthHint = 61;
+		btnDelete.addSelectionListener(new SelectionAdapter() {
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				int index = tableViewer.getTable().getSelectionIndex();
+				if (index == -1) {
+					return;
+				}
+				boolean flag = MessageDialog.openConfirm(UIUtils.getActiveShell(), "提示", "是否删除当前备份？");
+				if (flag) {
+					List<String> list = listFile.get(index);
+					String ID = list.get(0);// 第一列是ID
+					commands.clear();
+					commands.add(CMDPATH);
+					commands.add("delete");
+					commands.add("-D");
+					commands.add(backupSet.getDatabasePath());
+					commands.add("-B");
+					commands.add(backupSet.getBackupSetPath());
+					commands.add(ID);
+					execCommand(commands);
+
+					initBackupData();
+					if (listFile.size() > 0) {
+						tableViewer.setInput(listFile);
+					} else {
+						tableViewer.setInput(null);
+					}
+					tableViewer.refresh();
+					txtDetail.setText("");
+				}
+			}
+		});
+
+		Button btnCancel = new Button(compOpera, SWT.PUSH);
+		btnCancel.setText("取消");
+		data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+		btnCancel.setLayoutData(data11);
+		((GridData) btnCancel.getLayoutData()).widthHint = 61;
+
+		btnCancel.addSelectionListener(new SelectionAdapter() {
+
+			public void widgetSelected(SelectionEvent e) {
+				UIUtils.closeEditor(CheckBackupSetEditor.this);
+			}
+		});
+
+		tableViewer.getTable().addSelectionListener(new SelectionAdapter() {
+
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+
+				int index = tableViewer.getTable().getSelectionIndex();
+				if (index == -1) {
+					btnDelete.setEnabled(false);
+					btnRestore.setEnabled(false);
+				} else {
+					btnDelete.setEnabled(true);
+					btnRestore.setEnabled(true);
+				}
+				List<String> list = listFile.get(index);
+				String ID = list.get(0);// 第一列是ID
+				StringBuffer buffer = new StringBuffer();
+
+				StringBuffer appendbuffer = buffer.append(CMDPATH).append(" show ").append("-D ")
+						.append(backupSet.getDatabasePath()).append(" ").append(" -B ")
+						.append(backupSet.getBackupSetPath()).append(" ").append(ID);
+				java.lang.Runtime rt = java.lang.Runtime.getRuntime();// 执行命令行
+				StringBuffer txtDetailStr = new StringBuffer();
+				StringBuffer txtErrorStr = new StringBuffer();
+				try {
+					Process p = rt.exec(appendbuffer.toString());
+					InputStream is = p.getInputStream();
+					BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+					String line = null;
+					while ((line = reader.readLine()) != null) {
+						txtDetailStr.append(line + "\n");
+					}
+					BufferedReader errorStr = new BufferedReader(new InputStreamReader(p.getErrorStream()));
+					String error = null;
+					while ((error = errorStr.readLine()) != null) {
+						txtErrorStr.append(error + "\n");
+					}
+					p.waitFor();
+					int exitValue = p.exitValue();
+					if (exitValue != 0) {
+						MessageDialog.openInformation(UIUtils.getActiveShell(), "提示",
+								appendbuffer.toString() + "\n" + txtErrorStr.toString());
+					}
+					p.destroy();
+				} catch (IOException e1) {
+					e1.printStackTrace();
+				} catch (InterruptedException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+				txtDetail.setText(txtDetailStr.toString());
+			}
+		});
+		initBackupData();
+		if (listFile.size() > 0) {
+			tableViewer.setInput(listFile);
+		}
+	}
+
+	private void execCommand(List<String> buffer) {
+		ProcessBuilder builder = new ProcessBuilder(buffer);
+		builder.redirectErrorStream(true);
+		Process process;
+		try {
+			process = builder.start();
+			// Read out dir output
+			InputStream is = process.getInputStream();
+			InputStreamReader isr = new InputStreamReader(is);
+			BufferedReader br = new BufferedReader(isr);
+			String line;
+			StringBuffer errorBuffer = new StringBuffer();
+			while ((line = br.readLine()) != null) {
+				errorBuffer.append(line + "\n");
+			}
+
+			int exitValue = process.waitFor();
+
+			if (exitValue != 0) {
+				MessageDialog.openError(UIUtils.getActiveShell(), "错误", "错误日志： +\n" + errorBuffer.toString());
+				suss = "false";
+			} else {
+				suss = "true";
+			}
+		} catch (IOException | InterruptedException e) {
+			suss = "false";
+			e.printStackTrace();
+		}
+	}
+
+	class TableBackupProvider extends LabelProvider implements ITableLabelProvider {
+
+		@Override
+		public Image getColumnImage(Object element, int columnIndex) {
+			return null;
+		}
+
+		@Override
+		public String getColumnText(Object element, int columnIndex) {
+			List<String> strList = (List<String>) element;
+			switch (columnIndex) {
+			case 0:
+				return strList.get(0);
+			case 1:
+				return strList.get(1);
+			case 2:
+				return strList.get(2);
+			case 3:
+				return strList.get(3);
+			case 4:
+				return strList.get(4);
+			case 5:
+				return strList.get(5);
+			case 6:
+				return strList.get(6);
+			default:
+				return "";
+			}
+		}
+
+	}
+
+	class ContentProvider implements IStructuredContentProvider {
+		public Object[] getElements(Object inputElement) {
+			if (inputElement instanceof List) {
+				return ((List) inputElement).toArray();
+			} else {
+				return new Object[0];
+			}
+		}
+
+		public void dispose() {
+		}
+
+		public void inputChanged(Viewer viewer, Object oldInput, Object newInput) {
+		}
+	}
+
+	private void initBackupData() {
+		listFile.clear();
+		commands.clear();
+		commands.add(CMDPATH);
+		commands.add("show");
+		commands.add("-D");
+		commands.add(backupSet.getDatabasePath());
+		commands.add("-B");
+		commands.add(backupSet.getBackupSetPath());
+		try {
+			ProcessBuilder builder = new ProcessBuilder(commands);
+			builder.redirectErrorStream(true);
+			Process process;
+
+			process = builder.start();
+			// Read out dir output
+			InputStream is = process.getInputStream();
+			InputStreamReader isr = new InputStreamReader(is);
+			BufferedReader br = new BufferedReader(isr);
+			String rec = null;// 一行
+			try {
+				// 读取一行
+				while ((rec = br.readLine()) != null) {
+					if (rec.startsWith("====") || rec.startsWith("ID ")) {
+						continue;
+					}
+					List<String> cells = new ArrayList<String>();// 每行记录一个list
+					cells.add(rec.substring(0, 8).trim()); // name
+					cells.add(rec.substring(9, 28).trim()); // time
+					cells.add(rec.substring(29, 42).trim()); // mode
+					cells.add(rec.substring(44, 50).trim()); // tli
+					cells.add(rec.substring(64, 69).trim()); // duration
+					cells.add(rec.substring(71, 77).trim()); // size
+					cells.add(rec.substring(79).trim()); // status
+					listFile.add(cells);
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			} finally {
+			}
+			StringBuffer txtErrorStr = new StringBuffer();
+			BufferedReader errorStr = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+			String error = null;
+			while ((error = errorStr.readLine()) != null) {
+				txtErrorStr.append(error + "\n");
+			}
+
+			process.waitFor();
+			if (br != null) {
+				br.close();
+			}
+			process.destroy();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		if (listFile.size() == 0) {
+			btnDelete.setEnabled(false);
+			btnRestore.setEnabled(false);
+			btnClear.setEnabled(false);
+		}
+		else {
+			btnClear.setEnabled(true);			
+		}
+	}
+
+	class ClearDialog extends Dialog {
+		private Shell shell;
+		private boolean returnCode = false;
+		private FormToolkit toolkit;
+
+		public ClearDialog(Shell shell) {
+			super(shell);
+			this.shell = shell;
+			// 组件布局
+			createContents();
+		}
+
+		public boolean open() {
+			shell.open();
+			shell.layout();
+			Display display = getParent().getDisplay();
+			while (!shell.isDisposed()) {
+				if (!display.readAndDispatch())
+					display.sleep();
+			}
+			return returnCode;
+		}
+
+		private void createContents() {
+			shell = new Shell(getParent(), SWT.DIALOG_TRIM | SWT.APPLICATION_MODAL);
+			shell.setText("确认清除");
+			final GridLayout gridLayout_31 = new GridLayout();
+
+			gridLayout_31.verticalSpacing = 0;
+			gridLayout_31.marginWidth = 0;
+			gridLayout_31.marginHeight = 0;
+			gridLayout_31.horizontalSpacing = 0;
+			shell.setLayout(gridLayout_31);
+			shell.setSize(350, 200);
+			if (shell != null) {// 居中
+				Monitor[] monitorArray = Display.getCurrent().getMonitors();
+				Rectangle rectangle = monitorArray[0].getBounds();
+				Point size = shell.getSize();
+				shell.setLocation((rectangle.width - size.x) / 2, (rectangle.height - size.y) / 2);
+			}
+
+			IManagedForm managedForm = new ManagedForm(shell);
+			toolkit = managedForm.getToolkit();
+			final ScrolledForm form = managedForm.getForm();
+			GridData data1 = new GridData(GridData.FILL_BOTH);
+			form.setLayoutData(data1);
+			GridLayout layout = new GridLayout();
+			form.getBody().setLayout(layout);
+			toolkit.decorateFormHeading(form.getForm());
+			
+			Composite parent = new Composite(form.getBody(), SWT.NONE);
+			GridLayout layout1 = new GridLayout(3, false);
+			layout1.marginLeft = 10;
+			layout1.horizontalSpacing = 0;
+			layout1.verticalSpacing = 0;
+			layout1.marginTop = 20;
+			parent.setLayout(layout1);
+			parent.setLayoutData(new GridData(GridData.FILL_BOTH));
+			parent.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+			Label backupRetain1L = toolkit.createLabel(parent,"备份保留  ", SWT.NONE);
+
+			Composite composite2 = new Composite(parent, SWT.NONE);
+			composite2.setLayout(new GridLayout(2, false));
+			GridData gd2 = new GridData(SWT.FILL, SWT.FILL, true, false);
+			gd2.horizontalSpan = 2;
+			composite2.setLayoutData(gd2);
+			composite2.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+			final Button RetainDayB = toolkit.createButton(composite2,"天", SWT.CHECK);
+			GridData RetainDayB_gd = new GridData();
+			RetainDayB_gd.widthHint = 50;
+			RetainDayB.setLayoutData(RetainDayB_gd);
+
+			final Text RetainDayT = new Text(composite2, SWT.BORDER);
+			GridData RetainT_gd = new GridData();
+			RetainT_gd.widthHint = 150;
+			RetainDayT.setLayoutData(RetainT_gd);
+			RetainDayT.setEnabled(false);
+			RetainDayT.addModifyListener(new ModifyListener() {
+				@Override
+				public void modifyText(ModifyEvent e) {
+
+					if (!RetainDayT.getText().trim().equals("") && !RetainDayT.getText().matches("^[1-9]\\d*$")) {
+						RetainDayT.setText("");
+					}
+				}
+			});
+			Label backupRetain2L = toolkit.createLabel(parent,"", SWT.NONE);
+
+			Composite composite21 = new Composite(parent, SWT.NONE);
+			composite21.setLayout(new GridLayout(2, false));
+			GridData gd21 = new GridData(SWT.FILL, SWT.FILL, true, false);
+			gd21.horizontalSpan = 2;
+			composite21.setLayoutData(gd21);
+			composite21.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+			final Button RetainNumB =toolkit.createButton(composite21,"份", SWT.CHECK);
+			GridData RetainNumB_gd = new GridData();
+			RetainNumB_gd.widthHint = 50;
+			RetainNumB.setLayoutData(RetainNumB_gd);
+
+			final Text RetainNumT = new Text(composite21, SWT.BORDER);
+			GridData RetainNumT_gd = new GridData();
+			RetainNumT_gd.widthHint = 150;
+			RetainNumT.setLayoutData(RetainNumT_gd);
+			RetainNumT.setEnabled(false);
+			RetainNumT.addModifyListener(new ModifyListener() {
+				@Override
+				public void modifyText(ModifyEvent e) {
+
+					if (!RetainNumT.getText().trim().equals("") && !RetainNumT.getText().matches("^[1-9]\\d*$")) {
+						RetainNumT.setText("");
+					}
+				}
+			});
+			RetainDayB.addSelectionListener(new SelectionAdapter() {
+				@Override
+				public void widgetSelected(SelectionEvent e) {
+					if (RetainDayB.getSelection()) {
+						RetainDayT.setEnabled(true);
+						RetainNumT.setText("");
+						RetainNumT.setEnabled(false);
+						RetainNumB.setSelection(false);
+					} else {
+						RetainDayT.setText("");
+						RetainDayT.setEnabled(false);
+					}
+				}
+			});
+			RetainNumB.addSelectionListener(new SelectionAdapter() {
+				@Override
+				public void widgetSelected(SelectionEvent e) {
+					if (RetainNumB.getSelection()) {
+						RetainNumT.setEnabled(true);
+						RetainDayT.setText("");
+						RetainDayT.setEnabled(false);
+						RetainDayB.setSelection(false);
+					} else {
+						RetainNumT.setText("");
+						RetainNumT.setEnabled(false);
+					}
+				}
+			});
+
+			Composite compOpera = new Composite(shell, SWT.NONE);
+			compOpera.setLayout(new GridLayout(3, false));
+			GridData data11 = new GridData(GridData.FILL_HORIZONTAL);
+			compOpera.setLayoutData(data11);
+			Label label11 = toolkit.createLabel(compOpera,"", SWT.None);
+			data11 = new GridData(GridData.FILL_HORIZONTAL);
+			data11.horizontalSpan = 1;
+			label11.setLayoutData(data11);
+			compOpera.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+
+			final Button btnConfirm = new Button(compOpera, SWT.PUSH);
+			btnConfirm.setText("确定");
+			data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+			btnConfirm.setLayoutData(data11);
+			((GridData) btnConfirm.getLayoutData()).widthHint = 61;
+			btnConfirm.addSelectionListener(new SelectionAdapter() {
+				@Override
+				public void widgetSelected(SelectionEvent e) {
+					commands.clear();
+					commands.add(CMDPATH);
+					commands.add("retention");
+					commands.add("purge");
+					commands.add("-D");
+					commands.add(backupSet.getDatabasePath());
+					commands.add("-B");
+					commands.add(backupSet.getBackupSetPath());
+					if (RetainDayB.getSelection() && !RetainDayT.getText().trim().equals("")) {
+						commands.add("--window=" + RetainDayT.getText().trim());
+					} else if (RetainNumB.getSelection() && !RetainNumT.getText().trim().equals("")) {
+						commands.add("--redundancy=" + RetainNumT.getText().trim());
+					} else {
+						MessageDialog.openWarning(shell, "提示", "请选择需要备份的模式以及对应的值");
+						return;
+					}
+
+					execCommand(commands);
+					shell.dispose();
+				}
+			});
+
+			final Button btnCanel = new Button(compOpera, SWT.PUSH);
+			btnCanel.setText("取消");
+			data11 = new GridData(GridData.HORIZONTAL_ALIGN_END);
+			btnCanel.setLayoutData(data11);
+			((GridData) btnCanel.getLayoutData()).widthHint = 61;
+
+			btnCanel.addSelectionListener(new SelectionAdapter() {
+				@Override
+				public void widgetSelected(SelectionEvent e) {
+					returnCode = false;
+					shell.dispose();
+				}
+			});
+		}
+
+	}
+
+	@Override
+	public boolean isDirty() {
+		return false;
+	}
+
+	@Override
+	public void doSave(IProgressMonitor monitor) {
+	}
+
+	@Override
+	public void doSaveAs() {
+	}
+
+	@Override
+	public boolean isSaveAsAllowed() {
+		return false;
+	}
+
+	@Override
+	public void setFocus() {
+	}
+
+}

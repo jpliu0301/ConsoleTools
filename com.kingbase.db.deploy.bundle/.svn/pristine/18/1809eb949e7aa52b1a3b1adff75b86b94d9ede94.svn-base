@@ -1,0 +1,1254 @@
+package com.kingbase.db.deploy.bundle.editor;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.eclipse.core.runtime.FileLocator;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.Path;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.dialogs.ProgressMonitorDialog;
+import org.eclipse.jface.operation.IRunnableWithProgress;
+import org.eclipse.jface.viewers.ITableLabelProvider;
+import org.eclipse.jface.viewers.LabelProvider;
+import org.eclipse.jface.viewers.TableViewer;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.SelectionEvent;
+import org.eclipse.swt.events.SelectionListener;
+import org.eclipse.swt.events.TraverseEvent;
+import org.eclipse.swt.events.TraverseListener;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Dialog;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Monitor;
+import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.widgets.Table;
+import org.eclipse.swt.widgets.TableColumn;
+import org.pentaho.di.util.SWTUtil;
+
+import com.jcraft.jsch.ChannelExec;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSchException;
+import com.jcraft.jsch.Session;
+import com.kingbase.db.core.util.JschUtil;
+import com.kingbase.db.core.util.SafeProperties;
+import com.kingbase.db.deploy.bundle.KBDeployCore;
+import com.kingbase.db.deploy.bundle.editor.page.ContentProvider;
+import com.kingbase.db.deploy.bundle.model.tree.CNodeEntity;
+import com.kingbase.db.deploy.bundle.model.tree.CReadWriteEntity;
+import com.kingbase.db.deploy.bundle.model.tree.KeyValueEntity;
+import com.kingbase.db.deploy.bundle.model.tree.PoolEntity;
+import com.kingbase.db.deploy.bundle.model.tree.PosEntity;
+import com.kingbase.db.deploy.bundle.model.tree.TableNodeEntity;
+
+public class ReadWriteDialog extends Dialog {
+
+	private TableViewer tv;
+	private List<RefEntity> listRef;
+	private CReadWriteEntity entity;
+	List<TableNodeEntity> slaveDBList = new ArrayList<TableNodeEntity>(); // 备节点
+	TableNodeEntity mainDBEntity = null;
+
+	List<TableNodeEntity> slavePoolList = new ArrayList<TableNodeEntity>(); // 备Pool
+	TableNodeEntity mainPoolEntity = null;
+	private int intContinue = -1;
+	private Shell shell;
+	private int returnCode = 1;
+	public Map<CNodeEntity, Session> sessionMap = new HashMap<CNodeEntity, Session>();
+	private Button btnApply;
+	private String lineSeparator = System.getProperty("line.separator", "\n");
+	private List<String> list = new ArrayList<String>();
+	
+	private static String AUTHORIZED_KEYS = "templates/authorized_keys";
+	private static String PG_POOL = "templates/kingbasecluster.conf";
+	private static String PG_PCP = "templates/pcp.conf";
+	private static String CLUSTER_HBA = "templates/cluster_hba.conf";
+	private static String PG_PCPPASS = "templates/pcppass";
+	private static String PG_PHA = "templates/sys_hba.conf";
+	private static String PG_KINGBASE = "templates/kingbase.conf";
+	private static String PG_RECOVERY = "templates/recovery.conf";
+	private String success = null;
+	private StringBuffer authorized_keys = new StringBuffer(1024);
+	private Button btnContinue;
+	private Button btnCancel;
+	private boolean flag = true;
+	private int j = 0;
+
+	protected ReadWriteDialog(Shell parentShell, CReadWriteEntity entity) {
+		super(parentShell);
+		this.shell = parentShell;
+		this.entity = entity;
+
+		createDialog();
+	}
+
+	public int open() {
+		shell.open();
+		shell.layout();
+		Display display = getParent().getDisplay();
+		while (!shell.isDisposed()) {
+			if (!display.readAndDispatch())
+				display.sleep();
+		}
+		return returnCode;
+	}
+
+	protected void createDialog() {
+
+		shell = new Shell(getParent(),  SWT.TITLE | SWT.BORDER  | SWT.APPLICATION_MODAL);
+		shell.setText("读写分离集群部署");
+		final GridLayout gridLayout_31 = new GridLayout();
+		
+		gridLayout_31.verticalSpacing = 0;
+		gridLayout_31.marginWidth = 0;
+		gridLayout_31.marginHeight = 0;
+		gridLayout_31.horizontalSpacing = 0;
+		shell.setLayout(gridLayout_31);
+		shell.setSize(800, 600);
+		if (shell != null) {//居中
+			Monitor[] monitorArray = Display.getCurrent().getMonitors();
+			Rectangle rectangle = monitorArray[0].getBounds();
+			Point size = shell.getSize();
+			shell.setLocation((rectangle.width - size.x) / 2, (rectangle.height - size.y) / 2);
+		}
+		
+		shell.addTraverseListener(new TraverseListener() {
+
+			@Override
+			public void keyTraversed(TraverseEvent e) {
+				// 如果按的是Esc键就不执行操作
+				if (e.detail == SWT.TRAVERSE_ESCAPE) {
+					e.doit = false;
+				}
+			}
+		});
+		
+		Composite composite = new Composite(shell, SWT.NONE);
+		composite.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false, 1, 1));
+		GridLayout gl_composite = new GridLayout(1, false);
+		gl_composite.verticalSpacing = 3;
+		gl_composite.marginRight = 6;
+		gl_composite.marginLeft = 6;
+		gl_composite.marginTop = 6;
+		composite.setLayout(gl_composite);
+
+		Table table = new Table(composite, SWT.BORDER | SWT.FULL_SELECTION | SWT.MULTI);
+		table.setLinesVisible(true);
+		table.setHeaderVisible(true);
+		table.setLayout(new GridLayout());
+		GridData dataGroup = new GridData(SWT.FILL, SWT.FILL, true, false, 1, 1);
+		dataGroup.heightHint = 450;
+		table.setLayoutData(dataGroup);
+		String[] string = new String[] { "名称", "状态", "消耗时间" };
+		for (int i = 0; i < string.length; i++) {
+			TableColumn column = new TableColumn(table, SWT.CENTER);
+			column.setText(string[i]);
+			column.setWidth(180);
+		}
+
+		tv = new TableViewer(table);
+		tv.setContentProvider(new ContentProvider());
+		tv.setLabelProvider(new TableLabelProvider());
+		
+		packageStep();
+		tv.setInput(listRef);
+		
+		Composite compOpera = new Composite(shell, SWT.NONE);
+		GridLayout gl_compOpera = new GridLayout(4, false);
+		gl_compOpera.marginTop = 20;
+		GridData data11 = new GridData(GridData.FILL_HORIZONTAL);
+		compOpera.setLayout(gl_compOpera);
+		compOpera.setLayoutData(data11);
+		
+		Label label11 = new Label(compOpera, SWT.None);
+		label11.setText("");
+		data11 = new GridData(GridData.FILL_HORIZONTAL);
+		data11.horizontalSpan = 1;
+		label11.setLayoutData(data11);
+		
+		btnContinue = new Button(compOpera, SWT.PUSH);
+		btnContinue.setText("继续");
+		GridData button_gd = new GridData();
+		button_gd.widthHint = 65;
+		btnContinue.setLayoutData(button_gd);
+		btnContinue.addSelectionListener(new SelectionListener() {
+			
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				flag = true;
+				success = null;
+				apply();
+			}
+			
+			@Override
+			public void widgetDefaultSelected(SelectionEvent e) {
+			}
+		});
+		btnContinue.setEnabled(false);
+		
+		btnApply = new Button(compOpera, SWT.PUSH);
+		btnApply.setText("部署");
+		GridData button_gd1 = new GridData();
+		button_gd1.widthHint = 65;
+		btnApply.setLayoutData(button_gd1);
+		btnApply.addSelectionListener(new SelectionListener() {
+			
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				btnContinue.setEnabled(true);
+				btnApply.setEnabled(false);
+				SWTUtil.asyncExecThread(new Runnable() {
+					private CNodeEntity node = null;
+					public void run() {
+						for (CNodeEntity entity : sessionMap.keySet()) {
+							if (node != null && entity.getIp().equals(node.getIp())
+									&& entity.getName().equals(node.getName())) {
+								continue;
+							}
+							Session session = sessionMap.get(entity);
+							String value = execCommandAndReturnValue(session,
+									"ls /home/" + entity.getUser() + "/.ssh/authorized_keys");
+							if (value == null) {
+								try {
+									ChannelSftp sftp = JschUtil.sftp(session);
+									JschUtil.upload("/home/" + entity.getUser() + "/.ssh/", getFileInBundle(new Path(AUTHORIZED_KEYS)).getPath(), sftp);
+									sftp.disconnect();
+								} catch (IOException e) {
+									e.printStackTrace();
+								} catch (Exception e) {
+									e.printStackTrace();
+								}
+							} else {
+								JschUtil.execCommand(session, "echo " + authorized_keys.toString() + ">> /home/" + entity.getUser() + "/.ssh/authorized_keys");
+							}
+						}
+					}
+				});
+				apply();
+			}
+			
+			@Override
+			public void widgetDefaultSelected(SelectionEvent e) {
+			}
+		});
+		
+		btnCancel = new Button(compOpera, SWT.PUSH);
+		btnCancel.setText("取消");
+		btnCancel.setToolTipText("将取消读写分离集群的部署");
+		GridData button_gd11 = new GridData();
+		button_gd11.widthHint = 65;
+		btnCancel.setLayoutData(button_gd11);
+		btnCancel.addSelectionListener(new SelectionListener() {
+			
+			@Override
+			public void widgetSelected(SelectionEvent e) {
+				if(returnCode==0){
+					returnCode = 2;
+				}else{
+					returnCode = 1;
+				}
+				closeSeesion();
+				shell.dispose();
+			}
+			
+			@Override
+			public void widgetDefaultSelected(SelectionEvent e) {
+			}
+		});
+		
+		accessFileContents();
+	}
+	private void closeSeesion() {
+		List<TableNodeEntity> listDB = entity.getPosEntity().getListDb();
+		List<TableNodeEntity> listPool = entity.getPoolEntity().getListPool();
+		for (TableNodeEntity node : listPool) {
+			Session session = sessionMap.get(node);
+			if (session != null && session.isConnected()) {
+				session.disconnect();
+			}
+		}
+		for (TableNodeEntity node : listDB) {
+			Session session = sessionMap.get(node);
+			if (session != null && session.isConnected()) {
+				session.disconnect();
+			}
+		}
+		sessionMap.clear();
+	}
+	private void accessFileContents() {
+		try {
+			File file;
+			file = getFileInBundle(new Path(PG_POOL));
+			BufferedReader input = new BufferedReader(new InputStreamReader(new FileInputStream(file), "utf-8"));
+			String c;
+			while ((c = input.readLine()) != null) {
+				list.add(c);
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	private void restorePgpool() {
+		try {
+			File file;
+			file = getFileInBundle(new Path(PG_POOL));
+
+			FileWriter writer = new FileWriter(file, false);//false意味着是覆盖
+			StringBuffer buffer = new StringBuffer();
+			for (String str : list) {
+				buffer.append(str);
+				buffer.append(lineSeparator);
+			}
+			writer.write(buffer.toString());
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	public void refTv(TableViewer tv, List<RefEntity> list, int index) {
+		tv.update(list.get(index), null);
+	}
+
+	protected void apply() {
+
+		new Thread() {
+			public void run() {
+				while (true) {
+					try {
+						tv.getTable().getDisplay().asyncExec(new Runnable() {
+							@Override
+							public void run() {
+								for (int i = 0; i < listRef.size(); i++) {
+									refTv(tv, listRef, i);
+								}
+							}
+						});
+						Thread.sleep(500);
+					} catch (Exception e) {
+					}
+				}
+			}
+		}.start();
+		
+		ProgressMonitorDialog dialog = new ProgressMonitorDialog(shell);
+		try {
+			dialog.run(true, true, new KBRunnable());
+		} catch (InvocationTargetException e) {
+			e.printStackTrace();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		
+		if (success == null) {
+
+			MessageDialog.openInformation(shell, "提示",  "读写分离成功!");
+			restorePgpool();
+			returnCode = 0;
+			btnApply.setEnabled(false);
+			btnContinue.setEnabled(false);
+			btnCancel.setText("关闭");
+			btnCancel.setToolTipText("将关闭整个读写分离集群编辑器");
+		} else if(success.equals("cancel")){
+			btnApply.setEnabled(false);
+			btnContinue.setEnabled(false);
+			btnCancel.setText("关闭");
+			MessageDialog.openWarning(shell, "取消", "取消部署");
+		}else{
+			ErrorDialog error = new ErrorDialog(shell, success);
+			error.open();
+		}
+	}
+
+	class KBRunnable implements IRunnableWithProgress {
+
+		@Override
+		public void run(IProgressMonitor monitor) throws InvocationTargetException, InterruptedException {
+			monitor.beginTask("start...", IProgressMonitor.UNKNOWN);
+			new Thread() {
+				public void run() {
+					for (int i = 0; i < listRef.size(); i++) {
+						j = i;
+						if (success != null && success.equals("cancel")){
+							intContinue = j;
+							return;
+						}
+						String model = listRef.get(i).getModel();
+						String command = listRef.get(i).getCommand();
+						if (model.equals("upload")) {
+							flag = listRef.get(i).uploadFile(i);
+						} else if (model.equals("execute")) {
+							flag = listRef.get(i).executeCommand(i);
+						} else if (model.equals("update")) {
+							if (command.equals("kingbase")) {
+
+								listRef.get(i).updateKingbaseConf();
+							} else if (command.equals("recovery")) {
+
+								listRef.get(i).updateRecovery();
+							} else if (command.equals("kingbasecluster")) {
+
+								listRef.get(i).updateKingbaseCluster();
+							} else if (command.equals("pcp")) {
+
+								listRef.get(i).updatePcp();
+							} else if (command.equals("pcppass")) {
+
+								listRef.get(i).updatePcppass();
+							}
+						}
+						if (!flag) {
+							success = listRef.get(i).getName() + " 执行出错:\n" + listRef.get(i).getCommand();
+							intContinue = j;
+							return;
+						}
+						try {
+                            if(listRef.get(i).getName().equals("上传主kingbasecluster")){
+								
+								Thread.sleep(500);//保证db先启动，pool后
+							}else{
+								
+								Thread.sleep(100);//保证db先启动，pool后
+							}
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+					}
+					flag = false;
+				}
+			}.start();
+			
+			while (true) {
+				monitor.setTaskName(listRef.get(j).getName());
+				if (monitor.isCanceled()) {//取消
+					success = "cancel";
+					break;
+				}
+				if (success != null) {//出錯
+					break;
+				}
+				if (success == null && !flag) {//正常部署完成
+					break;
+				}
+			    Thread.sleep(10);
+			}
+			monitor.done();
+		}
+	}
+	
+	public String exportLib(String path, boolean kingbasecluster) {
+		if (kingbasecluster) {
+
+			return "export LD_LIBRARY_PATH=" + path + "kingbasecluster/lib;";
+		} else {
+
+			return "export LD_LIBRARY_PATH=" + path + "db/lib;";
+		}
+	}
+ 
+	/**
+	 * 执行命令获取返回值
+	 * */
+	public String execCommandAndReturnValue(Session session, String command) {
+
+		ChannelExec openChannel = JschUtil.execCommand(session, command);
+		String returnValue = JschUtil.returnInputStream(openChannel);
+		openChannel.disconnect();
+		return returnValue;
+	}
+
+	// 写入recovery.conf信息
+	public void writeRecoveryProperties(File file) {
+		try {
+			FileWriter writer = new FileWriter(file.getPath());
+			if (mainDBEntity != null && mainDBEntity.getNodeEntity() != null) {
+				writer.write("standby_mode='on'");
+				writer.write(lineSeparator);
+				writer.write("primary_conninfo='port=" + mainDBEntity.getListenerPost() + " host="
+						+ mainDBEntity.getNodeEntity().getIp() + " user=" + entity.getPosEntity().getDbUser()
+						+ " password=" + entity.getPosEntity().getDbPassword()
+						+ "'");
+				writer.write(lineSeparator);
+				writer.write("recovery_target_timeline='latest'");
+				writer.write(lineSeparator);
+			}
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	// 写入pcp.conf、pcppsss信息
+	public void writePcpProperties(File file, PoolEntity poolEntity, String returnValue) {
+		if (poolEntity != null) {
+			try {
+				FileWriter writer = new FileWriter(file, false);
+				writer.write(returnValue);
+				writer.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+
+	public void writeProperties(File file, String returnValue) {
+		try {
+			FileWriter writer = new FileWriter(file, false);
+			writer.write(returnValue);
+			writer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public File getFileInBundle(Path path) throws IOException {
+		URL url = FileLocator.find(KBDeployCore.getDefault().getBundle(), path, null);
+		url = FileLocator.toFileURL(url);
+		return new File(url.getFile());
+	}
+
+	/**
+	 * 写Postgresql.conf写入属性信息
+	 * 
+	 * */
+	public void writePostgresqlProperties(String filePath, PosEntity cReadEntity, TableNodeEntity zhuEntity,
+			String path) {
+		SafeProperties prop = new SafeProperties();
+		try {
+			InputStream fis = new FileInputStream(filePath);
+			prop.load(fis);
+			OutputStream fos = new FileOutputStream(filePath);
+			if (cReadEntity.getMax_wal() != "") {
+				prop.setProperty("max_wal_senders", cReadEntity.getMax_wal());
+			} else if (cReadEntity.getMax_standby_arc() != "") {
+				prop.setProperty("max_standby_archive_delay", cReadEntity.getMax_standby_arc());
+			} else if (cReadEntity.getWal_keep() != "") {
+				prop.setProperty("wal_keep_segments", cReadEntity.getWal_keep());
+			} else if (cReadEntity.getMax_standby_str() != "") {
+				prop.setProperty("max_standby_streaming_delay", cReadEntity.getMax_standby_str());
+			} else if (cReadEntity.getReplication() != "") {
+				prop.setProperty("replication_timeout", cReadEntity.getReplication());
+			} else if (cReadEntity.getWal_receiver() != "") {
+				prop.setProperty("wal_receiver_status_interval", cReadEntity.getWal_receiver());
+			} else if (cReadEntity.getHot_standby() != "") {
+				prop.setProperty("hot_standby_feedback", cReadEntity.getHot_standby());
+			}
+			if (zhuEntity.getListenerAddress() != "") {
+				prop.setProperty("listen_addresses", "'" + zhuEntity.getListenerAddress() + "'");
+			}
+			if (zhuEntity.getListenerPost() != "") {
+				prop.setProperty("port", zhuEntity.getListenerPost());
+			}
+			if (path != "") {
+				prop.setProperty("archive_dest", "'" + path + "archivedir/'");
+			}
+			prop.store(fos, null);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * 写入Postgresql.conf高级属性信息
+	 * 
+	 */
+	public void writePostgresqlSeniorProperties(String filePath, List<KeyValueEntity> list, String path) {
+		SafeProperties prop = new SafeProperties();
+		try {
+			InputStream fis = new FileInputStream(filePath);
+			prop.load(fis);
+			OutputStream fos = new FileOutputStream(filePath);
+			for (int i = 0; i < list.size(); i++) {
+				String value = (list.get(i).getValue()).replaceAll("\t", "");
+				prop.setProperty(list.get(i).getKey(), value);
+
+			}
+			if (mainDBEntity.getListenerAddress() != "") {
+				prop.setProperty("listen_addresses", "'" + mainDBEntity.getListenerAddress()+ "'");
+			} else if (mainDBEntity.getListenerPost() != "") {
+				prop.setProperty("port", mainDBEntity.getListenerPost());
+			}
+			if (path != "") {
+				prop.setProperty("archive_dest", "'" + path + "archivedir/'");
+			}
+			prop.store(fos, null);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	/**
+	 * 写入pgpool.conf信息
+	 * 
+	 */
+	public void writePoolProperties(String filePath, PoolEntity cReadEntity, TableNodeEntity zhuEntity1, boolean flag) {
+		SafeProperties prop = new SafeProperties();
+		try {
+			InputStream fis = new FileInputStream(filePath);
+			prop.load(fis);
+			OutputStream fos = new FileOutputStream(filePath);
+			if (cReadEntity.getDelegate_IP() != "") {
+				prop.setProperty("delegate_IP", "'" + cReadEntity.getDelegate_IP() + "'");
+			}
+			if (cReadEntity.getPort() != "") {
+				prop.setProperty("port", cReadEntity.getPort());
+			}
+			if (cReadEntity.getPcp_port() != "") {
+				prop.setProperty("pcp_port", cReadEntity.getPcp_port());
+			}
+			if (cReadEntity.getCheck_db() != "") {
+				prop.setProperty("check_db", cReadEntity.getCheck_db());
+			}
+			if (cReadEntity.getWd_port() != "") {
+				prop.setProperty("wd_port", cReadEntity.getWd_port());
+			}
+			if (cReadEntity.getNetcard() != "") {
+				prop.setProperty("netcard", cReadEntity.getNetcard());
+			}
+			if (cReadEntity.getPcpUser() != "") {
+				prop.setProperty("pcp_user", cReadEntity.getPcpUser());
+			}
+			if (cReadEntity.getPcpPass() != "") {
+				prop.setProperty("pcp_pass", cReadEntity.getPcpPass());
+			}
+			// flag为true 说明是主pool;false为备pool
+			if (flag) {
+				for (int i = 0; i < slavePoolList.size(); i++) {
+					prop.setProperty("other_kingbasecluster_hostname" + (i), "'" + slavePoolList.get(i).getNodeEntity().getIp() + "'");
+					prop.setProperty("other_kingbasecluster_port" + (i), "'" + cReadEntity.getPort() + "'");
+					prop.setProperty("other_wd_port" + (i), 9000 + (i) + "");
+				}
+				prop.setProperty("wd_port", "9000");
+			}else{
+				prop.setProperty("other_kingbasecluster_hostname0", "'" + mainPoolEntity.getNodeEntity().getIp() + "'");
+				prop.setProperty("other_kingbasecluster_port0", "'" + cReadEntity.getPort() + "'");
+				prop.setProperty("other_wd_port0", 9000+"");
+				
+				for (int i = 0; i < slavePoolList.size(); i++) {
+					TableNodeEntity prepare = slavePoolList.get(i);
+					if (prepare == zhuEntity1) {
+						prop.setProperty("wd_port", 9000 + (i) + "");
+					}
+				}
+			}
+			
+			if (zhuEntity1 != null && zhuEntity1.getNodeEntity() != null) {
+				
+				prop.setProperty("memqcache_oiddir",
+						"'" + zhuEntity1.getNodeEntity().getdPath() + "log/kingbasecluster/oiddir" + "'");
+				prop.setProperty("failover_command", "'" + zhuEntity1.getNodeEntity().getdPath()
+						+ "kingbasecluster/etc/failover.sh %d %h %p %D %m %M %H %P %r %R'");
+				prop.setProperty("pid_file_name", "'" + zhuEntity1.getNodeEntity().getdPath() + "log/kingbasecluster/kingbasecluster.pid'");
+				prop.setProperty("logdir", "'" + zhuEntity1.getNodeEntity().getdPath() + "run/kingbasecluster'");
+				prop.setProperty("follow_master_command", "'" + zhuEntity1.getNodeEntity().getdPath()
+						+ "kingbasecluster/etc/follow_master.sh %d %h %p %D %m %M %H %P %r %R'");
+				
+				prop.setProperty("listen_addresses", "'*'");
+			}
+			if (mainDBEntity != null && mainDBEntity.getNodeEntity() != null) {
+				prop.setProperty("backend_hostname0", "'" + mainDBEntity.getNodeEntity().getIp() + "'");
+				prop.setProperty("backend_port0", mainDBEntity.getListenerPost());
+				prop.setProperty("backend_weight0", "1");
+				prop.setProperty("backend_data_directory0",
+						"'" + mainDBEntity.getNodeEntity().getdPath() + "db/data" + "'");
+				
+				prop.setProperty("sr_check_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("sr_check_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+				prop.setProperty("recovery_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("recovery_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+				prop.setProperty("health_check_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("health_check_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+
+			}
+			for (int i = 0; i < slaveDBList.size(); i++) {
+				prop.setProperty("backend_hostname" + (i + 1),
+						"'" + slaveDBList.get(i).getNodeEntity().getIp() + "'");
+				prop.setProperty("backend_port" + (i + 1), slaveDBList.get(i).getListenerPost());
+				prop.setProperty("backend_weight" + (i + 1), "1");
+				prop.setProperty("backend_data_directory" + (i + 1),
+						"'" + slaveDBList.get(i).getNodeEntity().getdPath() + "db/data" + "'");
+			}
+			prop.store(fos, null);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+	/**
+	 * 写入pgpool.conf高级属性信息
+	 * 
+	 */
+	public void writePoolSeniorProperties(String filePath, List<KeyValueEntity> list) {
+		SafeProperties prop = new SafeProperties();
+		try {
+			InputStream fis = new FileInputStream(filePath);
+			prop.load(fis);
+			OutputStream fos = new FileOutputStream(filePath);
+			for (int i = 0; i < list.size(); i++) {
+				String value = (list.get(i).getValue()).replaceAll("\t", "");
+				prop.setProperty(list.get(i).getKey(), value);
+
+			}
+			if (mainPoolEntity != null && mainPoolEntity.getNodeEntity() != null) {
+				prop.setProperty("sr_check_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("sr_check_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+				prop.setProperty("recovery_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("recovery_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+				prop.setProperty("health_check_user", "'" + entity.getPosEntity().getDbUser() + "'");
+				prop.setProperty("health_check_password", "'" + entity.getPosEntity().getDbPassword() + "'");
+				
+				prop.setProperty("memqcache_oiddir", "'" + mainPoolEntity.getNodeEntity().getdPath() + "log/kingbasecluster/oiddir'");
+				prop.setProperty("failover_command", "'" + mainPoolEntity.getNodeEntity().getdPath()
+						+ "kingbasecluster/etc/failover.sh %d %h %p %D %m %M %H %P %r %R'");
+				prop.setProperty("pid_file_name", "'" + mainPoolEntity.getNodeEntity().getdPath() + "log/kingbasecluster/kingbasecluster.pid'");
+				prop.setProperty("follow_master_command", "'" + mainPoolEntity.getNodeEntity().getdPath()
+						+ "kingbasecluster/etc/follow_master.sh %d %h %p %D %m %M %H %P %r %R'");
+				prop.setProperty("listen_addresses", "*");
+			}
+			if (mainDBEntity != null && mainDBEntity.getNodeEntity() != null) {
+				prop.setProperty("backend_hostname0", mainDBEntity.getNodeEntity().getIp());
+				prop.setProperty("backend_port0", mainDBEntity.getListenerPost());
+				prop.setProperty("backend_weight0", "1");
+				prop.setProperty("backend_data_directory0", mainDBEntity.getNodeEntity().getdPath() + "db/data");
+			}
+			for (int i = 0; i < slaveDBList.size(); i++) {
+				prop.setProperty("backend_hostname" + (i + 1), slaveDBList.get(i).getNodeEntity().getIp());
+				prop.setProperty("backend_port" + (i + 1), slaveDBList.get(i).getListenerPost());
+				prop.setProperty("backend_weight" + (i + 1), "1");
+				prop.setProperty("backend_data_directory" + (i + 1),
+						slaveDBList.get(i).getNodeEntity().getdPath() + "db/data");
+			}
+			prop.store(fos, null);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	class TableLabelProvider extends LabelProvider implements ITableLabelProvider {
+
+		@Override
+		public String getColumnText(Object element, int columnIndex) {
+			RefEntity entity = (RefEntity) element;
+			if (columnIndex == 0) {
+				return entity.getName();
+			} else if (columnIndex == 1) {
+				return entity.getType();
+			} else if (columnIndex == 2) {
+				return entity.getTime();
+			}
+
+			return element.toString();
+		}
+
+		@Override
+		public Image getColumnImage(Object arg0, int arg1) {
+			return null;
+		}
+	}
+
+	class RefEntity {
+
+		private String name;
+		private String type = "未执行";
+		private String time;
+		private String model;
+		private String command;
+		private String path;
+		private String uploadFile;
+		private String uploadName;
+		private CNodeEntity nodeEntity;
+		private TableNodeEntity readWriteEntity;
+		
+		private Session session;
+		
+		public RefEntity(String name, String time, String model, TableNodeEntity readWriteEntity, String command) {
+			this.name = name;
+			this.time = time;
+			this.model = model;
+			this.command = command;
+			this.readWriteEntity = readWriteEntity;
+			this.nodeEntity = readWriteEntity.getNodeEntity();
+			this.session = sessionMap.get(nodeEntity);
+		}
+
+		public RefEntity(String name, String time, String model, TableNodeEntity readWriteEntity, String path,
+				String uploadFile,String uploadName) {
+			this.name = name;
+			this.time = time;
+			this.model = model;
+			this.path = path;
+			this.uploadFile = uploadFile;
+			this.uploadName = uploadName;
+			this.readWriteEntity = readWriteEntity;
+			this.nodeEntity = readWriteEntity.getNodeEntity();
+			this.session = sessionMap.get(nodeEntity);
+		}
+
+		/**
+		 * 上传某个文件
+		 */
+		public boolean uploadFile(int index) {
+
+			try {
+
+				if (intContinue <= index) {
+
+					this.setType("正在执行");
+					long startTime = System.currentTimeMillis();
+					JschUtil.upload(path, uploadFile, JschUtil.sftp(session));
+					if (uploadName.equals("pcppass.conf")) {
+						String changeUser = "chown " + this.nodeEntity.getUser() + "." + this.nodeEntity.getUser() + " " + "/home/" + this.nodeEntity.getUser() + "/" + "pcppass";
+						String changeName = "cd /home/" + this.nodeEntity.getUser() + "/; mv " + " pcppass " + ".pcppass";
+						String changePermission = "chmod 600 " + "/home/" + this.nodeEntity.getUser() + "/" + ".pcppass";
+						ChannelExec openChannel = JschUtil.execCommand(session, changeUser + ";" + changeName + ";" + changePermission);
+						openChannel.disconnect();
+					} else {
+						ChannelExec openChannel = JschUtil.execCommand(session, "chown -R " + nodeEntity.getUser() + "." + nodeEntity.getUser() + " " + path + uploadName);
+						openChannel.disconnect();
+					}
+					
+					this.setType("完成");
+					long endTime = System.currentTimeMillis();
+					this.setTime((endTime - startTime) + "ms");
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+				return false;
+			}
+			return true;
+		}
+
+		/**
+		 * 执行命令
+		 */
+		public boolean executeCommand(int index) {
+
+			if (intContinue <= index) {
+
+				this.setType("正在执行");
+				long startTime = System.currentTimeMillis();
+				ChannelExec openChannel = JschUtil.execCommand(session, command);
+				int exitCode = 0;
+				exitCode = JschUtil.returnSuccess(openChannel, exitCode);
+				this.setType("完成");
+				long endTime = System.currentTimeMillis();
+				this.setTime((endTime - startTime) + "ms");
+				openChannel.disconnect();
+				if (exitCode != 0) {
+					this.setType("执行出错");
+					return false;
+				}
+			}
+			return true;
+		}
+		
+		private void updateKingbaseConf() {
+			
+			this.setType("正在执行");
+			long startTime = System.currentTimeMillis();
+			try {
+				if (entity.getPosEntity().getIsDbBase()) {
+					File fileLocal;
+					fileLocal = getFileInBundle(new Path(PG_KINGBASE));
+					writePostgresqlProperties(fileLocal.getPath(), entity.getPosEntity(), readWriteEntity, this.nodeEntity.getdPath());
+				} else {
+					File fileLocal = getFileInBundle(new Path(PG_KINGBASE));
+					writePostgresqlSeniorProperties(fileLocal.getPath(), entity.getPosEntity().getListKey1(), this.nodeEntity.getdPath());
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			this.setType("完成");
+			long endTime = System.currentTimeMillis();
+			this.setTime((endTime - startTime) + "ms");
+		}
+
+		private void updateKingbaseCluster() {
+			
+			this.setType("正在执行");
+			long startTime = System.currentTimeMillis();
+			try {
+				if (entity.getPoolEntity().getIsPoolBase()) {
+					File fileLocal;
+					fileLocal = getFileInBundle(new Path(PG_POOL));
+					writePoolProperties(fileLocal.getPath(), entity.getPoolEntity(), readWriteEntity, true);
+					mkdir(session, this.nodeEntity.getUser(), this.nodeEntity.getdPath());
+				} else {
+					File fileLocal = getFileInBundle(new Path(PG_POOL));
+					writePoolSeniorProperties(fileLocal.getPath(), entity.getPoolEntity().getListKey2());
+					mkdir(session, this.nodeEntity.getUser(), this.nodeEntity.getdPath());
+				}
+			} catch (JSchException e) {
+				e.printStackTrace();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			this.setType("完成");
+			long endTime = System.currentTimeMillis();
+			this.setTime((endTime - startTime) + "ms");
+		}
+
+		private void updatePcp() {
+			
+			this.setType("正在执行");
+			long startTime = System.currentTimeMillis();
+			String returnValue = execCommandAndReturnValue(session,
+					"su - " + this.nodeEntity.getUser() + " -c \"" + exportLib(this.nodeEntity.getdPath(), true)
+							+ " cd " + this.nodeEntity.getdPath() + "kingbasecluster/bin/;chmod +x *; ./sys_md5 " + entity.getPoolEntity().getPcpPass() + "\"");
+			if (entity.getPoolEntity().getIsPoolBase()) {
+				try {
+					File file = getFileInBundle(new Path(PG_PCP));
+					writePcpProperties(file, entity.getPoolEntity(), entity.getPoolEntity().getPcpUser() + ":" + returnValue);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+			this.setType("完成");
+			long endTime = System.currentTimeMillis();
+			this.setTime((endTime - startTime) + "ms");
+		}
+
+		private void updateRecovery() {
+
+			this.setType("正在执行");
+			long startTime = System.currentTimeMillis();
+			try {
+				File fileLocal = getFileInBundle(new Path(PG_RECOVERY));
+				writeRecoveryProperties(fileLocal);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			this.setType("完成");
+			long endTime = System.currentTimeMillis();
+			this.setTime((endTime - startTime) + "ms");
+		}
+
+		private void updatePcppass() {
+
+			this.setType("正在执行");
+			long startTime = System.currentTimeMillis();
+			try {
+				File file = getFileInBundle(new Path(PG_PCPPASS));
+				writePcpProperties(file, entity.getPoolEntity(), "localhost:" + entity.getPoolEntity().getPcp_port()
+						+ ":" + entity.getPoolEntity().getPcpUser() + ":" + entity.getPoolEntity().getPcpPass());
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			this.setType("完成");
+			long endTime = System.currentTimeMillis();
+			this.setTime((endTime - startTime) + "ms");
+		}
+
+		public String getUploadFile() {
+			return uploadFile;
+		}
+
+		public void setUploadFile(String uploadFile) {
+			this.uploadFile = uploadFile;
+		}
+
+		public String getModel() {
+			return model;
+		}
+
+		public void setModel(String model) {
+			this.model = model;
+		}
+
+		public String getCommand() {
+			return command;
+		}
+
+		public void setCommand(String command) {
+			this.command = command;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public void setName(String name) {
+			this.name = name;
+		}
+
+		public String getType() {
+			return type;
+		}
+
+		public void setType(String type) {
+			this.type = type;
+		}
+
+		public String getTime() {
+			return time;
+		}
+
+		public void setTime(String time) {
+			this.time = time;
+		}
+	}
+
+	/**
+	 * 
+	 * 创建目录
+	 * @param session 
+	 * @param openChannel 
+	 * @param user 
+	 * @param user 
+	 * 
+	 */
+	private void mkdir(Session session, String user, String path) throws JSchException {
+		
+		JschUtil.execCommand1(session, "mkdir -p "+path+"log/kingbasecluster; mkdir -p "+path+"run/kingbasecluster;");
+		
+		StringBuffer buf = new StringBuffer();
+		buf.append("chown -R " + user + "." + user + " " + path+"log;");
+		buf.append("chown -R " + user + "." + user + " " + path+"log/kingbasecluster;");
+		buf.append("chown -R " + user + "." + user + " " + path+"run;");
+		buf.append("chown -R " + user + "." + user + " " + path+"run/kingbasecluster;");
+        JschUtil.execCommand1(session,buf.toString());
+	}
+	
+	/**
+	 * 
+	 * 将所有步骤打包成集合
+	 * 
+	 */
+	private void packageStep(){
+		
+		List<String> ipList = new ArrayList<String>();
+		
+		// 获取主备数据库，主备分发
+		List<TableNodeEntity> listDB = entity.getPosEntity().getListDb();
+		for (int i = 0; i < listDB.size(); i++) {
+			if (listDB.get(i).getLibrary().equals("主库")) {
+				mainDBEntity = listDB.get(i);
+			} else if (listDB.get(i).getLibrary().equals("备库")) {
+				slaveDBList.add(listDB.get(i));
+			}
+			if (!ipList.contains(listDB.get(i).getNodeEntity().getIp())) {
+				ipList.add(listDB.get(i).getNodeEntity().getIp());
+			}
+			Session session = null;
+			try {
+				session = JschUtil.connect(listDB.get(i).getNodeEntity().getIp(),
+						Integer.parseInt(listDB.get(i).getNodeEntity().getPort()), "root",
+						listDB.get(i).getNodeEntity().getRootPass());
+			} catch (NumberFormatException e) {
+				e.printStackTrace();
+				MessageDialog.openWarning(shell, "提示", e.getMessage());
+				return ;
+			} catch (JSchException e) {
+				e.printStackTrace();
+				MessageDialog.openWarning(shell, "提示", e.getMessage());
+				return ;
+			}
+			sessionMap.put(listDB.get(i).getNodeEntity(), session);
+		}
+		List<TableNodeEntity> listPool = entity.getPoolEntity().getListPool();
+		for (int i = 0; i < listPool.size(); i++) {
+			if (listPool.get(i).getLibrary().equals("主分发")) {
+				mainPoolEntity = listPool.get(i);
+			} else if (listPool.get(i).getLibrary().equals("备分发")) {
+				slavePoolList.add(listPool.get(i));
+			}
+			if (!ipList.contains(listPool.get(i).getNodeEntity().getIp())) {
+				ipList.add(listPool.get(i).getNodeEntity().getIp());
+			}
+			Session session = null;
+			try {
+				session = JschUtil.connect(listPool.get(i).getNodeEntity().getIp(),
+						Integer.parseInt(listPool.get(i).getNodeEntity().getPort()), "root",
+						listPool.get(i).getNodeEntity().getRootPass());
+			} catch (NumberFormatException e) {
+				e.printStackTrace();
+				MessageDialog.openWarning(shell, "提示", e.getMessage());
+				return ;
+			} catch (JSchException e) {
+				e.printStackTrace();
+				MessageDialog.openWarning(shell, "提示", e.getMessage());
+				return ;
+			}
+			sessionMap.put(listPool.get(i).getNodeEntity(), session);
+		}
+		CNodeEntity node = null;
+		for (CNodeEntity entity : sessionMap.keySet()) {
+			if (node != null && entity.getIp().equals(node.getIp()) && entity.getName().equals(node.getName())) {
+				continue;
+			}
+			ChannelExec openChannel = JschUtil.execCommand(sessionMap.get(entity),"cat /home/" + entity.getUser() + "/.ssh/id_rsa.pub");
+			String returnValue = JschUtil.returnInputStream(openChannel);
+			if (returnValue != null) {
+				authorized_keys.append(returnValue);
+			}
+			openChannel.disconnect();
+			node = entity;
+		}
+		try {
+			File file = getFileInBundle(new Path(AUTHORIZED_KEYS));
+			writeProperties(file, authorized_keys.toString());
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		CNodeEntity mainDB = mainDBEntity.getNodeEntity();
+		listRef = new ArrayList<RefEntity>();
+
+		try {
+			listRef.add(new RefEntity("上传主数据库", "","upload", mainDBEntity, mainDB.getdPath(), new File(entity.getPosEntity().getDbzipPath()).getPath(),entity.getPosEntity().getDbzipName()));
+			listRef.add(new RefEntity("解压主数据库", "", "execute", mainDBEntity , "su - "+mainDB.getUser()+" -c \"cd " + mainDB.getdPath() + ";unzip -o "+entity.getPosEntity().getDbzipName()+";cd " + mainDB.getdPath() + "db/bin/;chmod +x *\""));
+			listRef.add(new RefEntity("初始化主数据库", "", "execute", mainDBEntity , "su - "+mainDB.getUser()+" -c \"cd " + mainDB.getdPath() + "db/bin/;"+ exportLib(mainDB.getdPath(), false) +"./initdb -D ../data -U"+entity.getPosEntity().getDbUser()+" -W" +entity.getPosEntity().getDbPassword()+"\""));
+			listRef.add(new RefEntity("修改kingbase.conf文件", "", "update", mainDBEntity , "kingbase"));
+			listRef.add(new RefEntity("上传kingbase.conf文件", "", "upload", mainDBEntity,mainDB.getdPath() + "db/data/",getFileInBundle(new Path(PG_KINGBASE)).getPath(),"kingbase.conf"));
+		    listRef.add(new RefEntity("新建archivedir文件夹", "", "execute", mainDBEntity , "su - "+mainDB.getUser()+" -c \"cd " + mainDB.getdPath() + ";mkdir -p archivedir\""));
+		    listRef.add(new RefEntity("上传sys_hba.conf文件", "", "upload", mainDBEntity , mainDBEntity.getNodeEntity().getdPath() + "db/data/",getFileInBundle(new Path(PG_PHA)).getPath(),"sys_hba.conf"));
+
+		    //将DB机器，pool机器全写入文件
+			StringBuffer buff = new StringBuffer();
+			for (String ip : ipList) {
+				buff.append("echo host        all         " + entity.getPosEntity().getDbUser() + "        " + ip
+						+ "/24     trust >>" + mainDB.getdPath() + "db/data/sys_hba.conf; ");
+				buff.append("echo host         replication         " + entity.getPosEntity().getDbUser() + "        " + ip
+						+ "/24     trust >>" + mainDB.getdPath() + "db/data/sys_hba.conf; ");
+			}
+			
+			listRef.add(new RefEntity("修改sys_hba.conf文件", "", "execute",
+					mainDBEntity, "su - " + mainDB.getUser() + " -c\"" + buff.toString() + "\""));    
+		    
+		    listRef.add(new RefEntity("启动数据库", "", "execute", mainDBEntity , "su - "+mainDB.getUser()+" -c \"rm -f /tmp/.s.KINGBASE."+mainDBEntity.getListenerPost()+"*"+";cd " + mainDB.getdPath() + "db/bin/;LD_LIBRARY_PATH=../lib ./sys_ctl start -D ../data -l ../kingbase.log\""));
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+		
+		if (slaveDBList != null) {
+			for (int i = 0; i < slaveDBList.size(); i++) {
+				TableNodeEntity readWriteEntity = slaveDBList.get(i);
+				CNodeEntity slaveDB = readWriteEntity.getNodeEntity();
+				String user = slaveDB.getUser();
+				String path = slaveDB.getdPath();
+				try {
+					listRef.add(new RefEntity("上传备" + (i + 1) + "数据库", "", "upload",readWriteEntity, path, new File(entity.getPosEntity().getDbzipPath()).getPath(),entity.getPosEntity().getDbzipName()));
+					listRef.add(new RefEntity("解压备" + (i + 1) + "数据库", "", "execute",readWriteEntity,  "su - "+user+" -c \"cd " + path + ";unzip -o "+entity.getPosEntity().getDbzipName()+"\""));
+					listRef.add(new RefEntity("拉取主数据", "", "execute", readWriteEntity,
+							"su - " + user + " -c \""+ exportLib(path, false) +" cd " + path + "db/bin/;chmod +x *; ./sys_basebackup -h"
+							+ mainDBEntity.getNodeEntity().getIp() + " -p" + mainDBEntity.getListenerPost()
+							+ " -U" + entity.getPosEntity().getDbUser() + " -W"+entity.getPosEntity().getDbPassword()+" -D ../data\""));
+					listRef.add(new RefEntity("修改kingbase.conf文件", "", "update",readWriteEntity,  "kingbase"));
+					listRef.add(new RefEntity("上传kingbase.conf文件", "", "upload", readWriteEntity,path + "db/data/",getFileInBundle(new Path(PG_KINGBASE)).getPath(),"kingbase.conf"));
+					listRef.add(new RefEntity("新建archivedir文件夹", "", "execute",readWriteEntity,  "su - "+user+" -c\"cd " + path + ";mkdir -p archivedir\""));
+					
+					listRef.add(new RefEntity("创建recovery.conf文件", "", "update",readWriteEntity,  "recovery"));
+					listRef.add(new RefEntity("上传recovery.conf文件", "", "upload", readWriteEntity , path + "db/data/",getFileInBundle(new Path(PG_RECOVERY)).getPath(),"recovery.conf"));
+					listRef.add(new RefEntity("启动数据库", "", "execute", readWriteEntity, "su - " + user + " -c \"rm -f /tmp/.s.KINGBASE."+readWriteEntity.getListenerPost()+"*"+";cd " + path + "db/bin/;LD_LIBRARY_PATH=../lib ./sys_ctl start -D ../data -l ../kingbase.log\""));
+				} catch (IOException e1) {
+					e1.printStackTrace();
+				}
+			}
+		}
+		
+		CNodeEntity mainPool = mainPoolEntity.getNodeEntity();
+		try {
+			String user = mainPool.getUser();
+			String path = mainPool.getdPath();
+			listRef.add(new RefEntity("上传主kingbasecluster", "", "upload", mainPoolEntity, path, new File(entity.getPoolEntity().getPoolzipPath()).getPath(),entity.getPoolEntity().getPoolzipName()));
+			listRef.add(new RefEntity("解压主kingbasecluster", "", "execute", mainPoolEntity,"su - "+user+" -c \"cd " + path + ";unzip -o "+entity.getPoolEntity().getPoolzipName()+"\""));
+			
+			listRef.add(new RefEntity("修改kingbasecluster.conf文件", "", "update", mainPoolEntity,"kingbasecluster"));
+			listRef.add(new RefEntity("上传kingbasecluster.conf文件", "", "upload", mainPoolEntity,path + "kingbasecluster/etc/", getFileInBundle(new Path(PG_POOL)).getPath(),"kingbasecluster.conf"));
+			listRef.add(new RefEntity("修改pcp.conf文件", "", "update",mainPoolEntity, "pcp"));//增加pcp.conf文件
+			listRef.add(new RefEntity("上传pcp.conf文件", "", "upload", mainPoolEntity,path + "kingbasecluster/etc/", getFileInBundle(new Path(PG_PCP)).getPath(),"pcp.conf"));
+			
+
+			listRef.add(new RefEntity("上传cluster_hba.conf文件", "", "upload", mainPoolEntity,
+					path + "kingbasecluster/etc/", getFileInBundle(new Path(CLUSTER_HBA)).getPath(),
+					"cluster_hba.conf"));
+			//将DB机器，pool机器全写入文件
+			StringBuffer buff = new StringBuffer();
+			for (String ip : ipList) {
+				String sub = ip.substring(0, 8);
+				ip =sub+ "0.0";
+				buff.append("echo host        all       all     " + ip
+						+ "/16     trust >>" + path + "kingbasecluster/etc/cluster_hba.conf; ");
+			    break;
+			}
+			
+			listRef.add(new RefEntity("修改cluster_hba.conf文件", "", "execute",
+					mainPoolEntity, "su - " + user + " -c\"" + buff.toString() + "\""));
+			
+			
+			listRef.add(new RefEntity("修改pcppass.conf文件", "", "update",mainPoolEntity, "pcppass"));//增加.pcppass文件
+			listRef.add(
+					new RefEntity("上传pcppass.conf文件", "", "upload", mainPoolEntity, "/home/" + user + "/", getFileInBundle(new Path(PG_PCPPASS)).getPath(),"pcppass.conf"));
+			listRef.add(new RefEntity("修改cluster_passwd文件", "", "execute",
+					mainPoolEntity, "su - " + user + " -c\"cd " + path
+							+ "kingbasecluster/bin/;./sys_md5 -f ../etc/kingbasecluster.conf -u "+entity.getPoolEntity().getPcpUser()+" -m "+entity.getPoolEntity().getPcpPass()+"\""));
+			listRef.add(new RefEntity("启动kingbasecluster", "", "execute", mainPoolEntity,
+					"su - " + user + " -c \"rm -f /tmp/.s.KINGBASE."+entity.getPoolEntity().getPcp_port()+" /tmp/.s.KINGBASE."+entity.getPoolEntity().getPort()+";" + exportLib(path, true) + " cd " + path + "kingbasecluster/bin/; ./kingbasecluster -a ../etc/cluster_hba.conf  -f ../etc/kingbasecluster.conf -F ../etc/pcp.conf\""));
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+
+		if (slavePoolList != null) {
+			for (int i = 0; i < slavePoolList.size(); i++) {
+				TableNodeEntity readWriteEntity = slavePoolList.get(i);
+				CNodeEntity slavePool = slavePoolList.get(i).getNodeEntity();
+				String user = slavePool.getUser();
+				String path = slavePool.getdPath();
+				try {
+					listRef.add(new RefEntity("上传备" + (i + 1) + "kingbasecluster", "", "upload", readWriteEntity, path, new File(entity.getPoolEntity().getPoolzipPath()).getPath(), entity.getPoolEntity().getPoolzipName()));
+					listRef.add(new RefEntity("解压备" + (i + 1) + "kingbasecluster", "", "execute",readWriteEntity, "su - "+user+" -c\"cd " + path + ";unzip -o "+entity.getPoolEntity().getPoolzipName()+"\""));
+					
+					listRef.add(new RefEntity("修改kingbasecluster.conf文件", "", "update", readWriteEntity,"kingbasecluster"));
+					listRef.add(new RefEntity("上传kingbasecluster.conf文件", "", "upload", readWriteEntity,path + "kingbasecluster/etc/",getFileInBundle(new Path(PG_POOL)).getPath(),"kingbasecluster.conf"));
+					listRef.add(new RefEntity("修改pcp.conf文件", "", "update", readWriteEntity,"pcp"));//增加pcp.conf文件
+					listRef.add(new RefEntity("上传pcp.conf文件", "", "upload",readWriteEntity, path + "kingbasecluster/etc/",getFileInBundle(new Path(PG_PCP)).getPath(),"pcp.conf"));
+					
+
+					listRef.add(new RefEntity("上传cluster_hba.conf文件", "", "upload", readWriteEntity,
+							path + "kingbasecluster/etc/", getFileInBundle(new Path(CLUSTER_HBA)).getPath(),
+							"cluster_hba.conf"));
+					//将DB机器，pool机器全写入文件
+					StringBuffer buff = new StringBuffer();
+					for (String ip : ipList) {
+						String sub = ip.substring(0, 8);
+						ip =sub+ "0.0";
+						buff.append("echo host        all         all        " + ip
+								+ "/16     trust >>" + path + "kingbasecluster/etc/cluster_hba.conf; ");
+                        break;
+					}
+					
+					listRef.add(new RefEntity("修改cluster_hba.conf文件", "", "execute",
+							readWriteEntity, "su - " + user + " -c\"" + buff.toString() + "\""));
+					
+					listRef.add(
+							new RefEntity("上传pcppass.conf文件", "", "upload", readWriteEntity, "/home/" + user + "/", getFileInBundle(new Path(PG_PCPPASS)).getPath(),"pcppass.conf"));
+					listRef.add(new RefEntity("修改cluster_passwd文件", "", "execute",
+							readWriteEntity, "su - " + user + " -c\"cd " + path
+									+ "kingbasecluster/bin/;./sys_md5 -f ../etc/kingbasecluster.conf -u "+entity.getPoolEntity().getPcpUser()+" -m "+entity.getPoolEntity().getPcpPass()+"\""));//增加.pcppass文件
+					listRef.add(new RefEntity("启动kingbasecluster", "", "execute", readWriteEntity,
+							"su - " + user + " -c\"rm -f /tmp/.s.KINGBASE."+entity.getPoolEntity().getPcp_port()+" /tmp/.s.KINGBASE."+entity.getPoolEntity().getPort()+";" + exportLib(path, true) + " cd " + path + "kingbasecluster/bin/;./kingbasecluster -a ../etc/cluster_hba.conf -f ../etc/kingbasecluster.conf -F ../etc/pcp.conf\""));
+				} catch (IOException e1) {
+					e1.printStackTrace();
+				}
+			}
+		}
+	}
+}

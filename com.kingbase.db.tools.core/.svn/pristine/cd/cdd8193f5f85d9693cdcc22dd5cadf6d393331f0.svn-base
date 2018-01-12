@@ -1,0 +1,187 @@
+package com.kingbase.db.core.util;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
+import org.dom4j.io.OutputFormat;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.window.IShellProvider;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Event;
+import org.eclipse.swt.widgets.Listener;
+import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.widgets.Text;
+import org.eclipse.ui.IEditorPart;
+import org.eclipse.ui.IWorkbench;
+import org.eclipse.ui.IWorkbenchPage;
+import org.eclipse.ui.PlatformUI;
+
+public class UIUtils {
+	
+	private final static String DATABASE = "TEMPLATE2";
+	/**
+	 * 设置text只能输入数字
+	 * 
+	 * @param Control
+	 *            text
+	 */
+	public static void verifyTextNumber(Control text) {
+		text.addListener(SWT.Verify, new Listener() {
+			public void handleEvent(Event e) {
+				String string = e.text;
+				char[] chars = new char[string.length()];
+				string.getChars(0, chars.length, chars, 0);
+				for (int i = 0; i < chars.length; i++) {
+					if (!('0' <= chars[i] && chars[i] <= '9')) {
+						e.doit = false;
+						return;
+					}
+				}
+			}
+		});
+	}
+	/**
+	 * 设置text只能输入数字,大小写字母,下划线
+	 * 
+	 * @param Control
+	 *            text
+	 */
+	public static void verifyText(Control text) {
+		text.addListener(SWT.Verify, new Listener() {
+			public void handleEvent(Event e) {
+				String string = e.text;
+				char[] chars = new char[string.length()];
+				string.getChars(0, chars.length, chars, 0);
+				for (int i = 0; i < chars.length; i++) {
+					if (!(('A' <= chars[i] && chars[i] <= 'Z')||('a' <= chars[i] && chars[i] <= 'z')||('0' <= chars[i] && chars[i] <= '9')||chars[i]=='_')) {
+						e.doit = false;
+						return;
+					}
+				}
+			}
+		});
+	}
+	/**
+	 * 设置text只能输入数字,小写字母,下划线
+	 * 
+	 * @param Control
+	 *            text
+	 */
+	public static void verifyLowText(Control text) {
+		text.addListener(SWT.Verify, new Listener() {
+			public void handleEvent(Event e) {
+				String string = e.text;
+				char[] chars = new char[string.length()];
+				string.getChars(0, chars.length, chars, 0);
+				for (int i = 0; i < chars.length; i++) {
+					if (!(('a' <= chars[i] && chars[i] <= 'z')||('0' <= chars[i] && chars[i] <= '9')||chars[i]=='_')) {
+						e.doit = false;
+						return;
+					}
+				}
+			}
+		});
+	}
+
+	/**
+	 * 设置text不能输入空格
+	 * 
+	 * @param Control
+	 *            text
+	 */
+	public static void verifyTextNotSpace(Control text) {
+		text.addListener(SWT.Verify, new Listener() {
+			public void handleEvent(Event e) {
+				if (e.keyCode == 32) {
+					e.doit = false;
+					return;
+				}
+			}
+		});
+	}
+	/**
+	 * 验证IP正确性
+	 * 
+	 * @param Text text
+	 */
+	public static boolean verifyIP(Text text) {
+		if (text == null) {
+			return false;
+		}
+		String ip = text.getText();
+		if(ip.equalsIgnoreCase("localhost")){
+			return true;
+		}
+		
+		String rex = "^(1\\d{2}|2[0-4]\\d|25[0-5]|[1-9]\\d|[1-9])\\." + "(1\\d{2}|2[0-4]\\d|25[0-5]|[1-9]\\d|\\d)\\."
+				+ "(1\\d{2}|2[0-4]\\d|25[0-5]|[1-9]\\d|\\d)\\." + "(1\\d{2}|2[0-4]\\d|25[0-5]|[1-9]\\d|\\d)$";
+		if (!ip.matches(rex)) {
+			MessageDialog.openWarning(UIUtils.getActiveShell(), "提示", "请输入正确的IP地址");
+			text.setFocus();
+			return false;
+		}
+		return true;
+	}
+
+	public static Shell getActiveShell() {
+		IWorkbench workbench = PlatformUI.getWorkbench();
+		return workbench == null ? null : getShell(workbench.getActiveWorkbenchWindow());
+	}
+
+	public static Shell getShell(IShellProvider provider) {
+		return provider == null ? null : provider.getShell();
+	}
+	
+	/**
+	 * 关闭编辑器
+	 * @param readWriteEditor 
+	 */
+	public static void closeEditor(IEditorPart editor) {
+		IWorkbenchPage PAGE = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+		PAGE.closeEditor(editor, true);
+	}
+
+	/**
+	 * 克隆
+	 * 
+	 * @param src
+	 * @return
+	 * @throws Exception
+	 */
+	public static Object deepCopy(Object src) {
+		Object dest = null;
+		ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+		try {
+			ObjectOutputStream out = new ObjectOutputStream(byteOut);
+			out.writeObject(src);
+			ByteArrayInputStream byteIn = new ByteArrayInputStream(byteOut.toByteArray());
+			ObjectInputStream in = new ObjectInputStream(byteIn);
+			dest = in.readObject();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (ClassNotFoundException e) {
+			e.printStackTrace();
+		}
+		return dest;
+	}
+
+	public static OutputFormat xmlFormat() {
+		OutputFormat format = OutputFormat.createPrettyPrint(); // 设置XML文档输出格式
+		format.setEncoding("utf-8"); // 设置XML文档的编码类型
+		format.setSuppressDeclaration(true);
+		format.setIndent(true); // 设置是否缩进
+		format.setIndent("  "); // 以空格方式实现缩进
+		format.setNewlines(true); // 设置是否换行
+		return format;
+	}
+
+	public static String getDatabase() {
+		return DATABASE;
+	}
+	
+	
+}

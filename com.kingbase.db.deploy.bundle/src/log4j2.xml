@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration status="off">
+	<Properties>
+		<Property name="LS">${sys:file.separator}</Property>
+		<Property name="LOG_DIR">logs${LS}</Property>
+	</Properties>
+	<appenders>
+		<Console name="Console" target="SYSTEM_OUT">
+			<ThresholdFilter level="trace" onMatch="ACCEPT"
+				onMismatch="DENY" />
+			<PatternLayout
+				pattern="%d{HH:mm:ss.SSS} %-5level %class{36} %L %M - %msg%xEx%n" />
+		</Console>
+
+		<RollingFile name="RollingFile" fileName="${LOG_DIR}common.log"
+			filePattern="${LOG_DIR}common-%d{yyyy-MM-dd}.log">
+			<PatternLayout pattern="%-d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %m%n" />
+			<Policies>
+				<TimeBasedTriggeringPolicy modulate="true"
+					interval="1" />
+			</Policies>
+		</RollingFile>
+	</appenders>
+
+	<loggers>
+		<root level="trace">
+			<appender-ref ref="RollingFile" />
+		</root>
+
+		<!--AsyncLogger name="AsyncLogger" level="trace" includeLocation="true"> 
+			<appender-ref ref="Console" /> <appender-ref ref="debugLog" /> <appender-ref 
+			ref="errorLog" /> </AsyncLogger> <asyncRoot level="trace" includeLocation="true"> 
+			<appender-ref ref="RollingFile" /> </asyncRoot -->
+
+	</loggers>
+</configuration>  

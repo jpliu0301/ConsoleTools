@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Help
+Bundle-SymbolicName: com.kingbase.db.tools.help;singleton:=true
+Bundle-Version: 8.2.0
+Bundle-Vendor: KINGBASE
+Bundle-RequiredExecutionEnvironment: JavaSE-1.8
+Bundle-ClassPath: lib/dom4j-1.6.1.jar,
+ lib/jsoup-1.8.1.jar,
+ .

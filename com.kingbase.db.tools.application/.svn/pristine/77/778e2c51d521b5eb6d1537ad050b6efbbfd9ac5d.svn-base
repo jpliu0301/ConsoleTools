@@ -1,0 +1,14 @@
+package com.kingbase.db.replication.application.intro;
+
+import org.eclipse.ui.IPageLayout;
+import org.eclipse.ui.IPerspectiveFactory;
+
+public class Perspective implements IPerspectiveFactory {
+
+	public static final String Perspective_ID = "com.kingbase.db.replication.application.perspective";
+
+	@Override
+	public void createInitialLayout(IPageLayout layout) {
+		layout.setEditorAreaVisible(true);
+	}
+}

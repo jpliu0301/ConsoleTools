@@ -1,0 +1,96 @@
+#!/bin/sh
+#source /home/kdb/KingbaseES/V8/kbrc
+# %H hostname of the new master node
+new_master=$1
+# %h = host name
+old_primary=$4
+# %P = old primary node id
+old_primary_node=$2
+# %d = node id    (if node id is primary goes down, then we will ssh -T $new_master that standby takes over primary node.)
+failed_node=$3
+
+#set kingbase PATH
+KB_PATH="/home/kdb/KingbaseES/V8/Server/bin"
+#set kingbase LD_LIBRARY_PATH 
+KB_LD_PATH="/home/kdb/KingbaseES/V8/Server/lib"
+#set kingbase data path
+KB_DATA_PATH="/home/kdb/KingbaseES/V8/data"
+#set kingbase data user
+KB_USER="SYSTEM"
+#set kingbase data name 
+KB_DATANAME="TEST"
+#set kingbase data port
+KB_PORT="55433"
+#set kingbase system user execute the program
+KB_EXECUTE_SYS_USER="lx"
+
+#Is need real kb nodes require virtual IP, like x.x.x.x/24
+KB_VIRTUAL_IP=""
+#WARING, MUST CHANGE THE SAME NAME THAT ALL THE NETWORK CARDS, IF NOT ,DON'T ALTER
+KB_VIRTUAL_DEV_NAME=""
+
+#SET FAILOVER_LOG_DIR="/tmp/failover.log"
+FAILOVER_LOG_DIR="/tmp/failover.log"
+ENDLS=$FAILOVER_LOG_DIR 2>&1
+
+#SET THE PRIMARY FLAG NAME FILE
+KB_PRIMARY_FLAG="KB_PRIMARY_FLAG"
+
+function LOGFILE()
+{
+        SHELLNAME=$1
+        fileindex=0
+        echo `date +'%Y-%m-%d %H:%M:%S'` [$SHELLNAME] beging.. >> $FAILOVER_LOG_DIR 2>&1
+        $SHELLNAME   >> $RECOVERY_LOG_DIR 2>&1
+        
+#        while [ 0 -ne ${#LOGDETAIL[*]} ]
+#        do
+#                #fileindex=0
+#
+#                echo ${LOGDETAIL[fileindex]} >> $FAILOVER_LOG_DIR 2>&1
+#                unset LOGDETAIL[fileindex]
+#                let fileindex+=1;
+#        done
+}
+
+echo -----------------`date +'%Y-%m-%d %H:%M:%S'` failover beging---------------------------------------  >> $ENDLS
+#echo `date +'%Y-%m-%d %H:%M:%S'` failover beging.. >> $ENDLS
+
+
+if [ $old_primary_node -eq $failed_node ];then
+# master down
+echo "master down....."  >> $ENDLS
+if [ "$KB_VIRTUAL_IP"x != ""x ]
+then
+    echo "del old primary VIP" >> $ENDLS
+    #LOGDETAIL=(`/usr/bin/ssh -T $old_primary "$KB_PATH/change_vip.sh $KB_VIRTUAL_IP $KB_VIRTUAL_DEV_NAME del 2>&1"`)
+    /usr/bin/ssh -T $old_primary "$KB_PATH/change_vip.sh $KB_VIRTUAL_IP $KB_VIRTUAL_DEV_NAME del 2>&1" >> $ENDLS
+    #LOGFILE DELVIP
+    echo "add VIP" >> $ENDLS
+    /usr/bin/ssh -T $new_master "$KB_PATH/change_vip.sh $KB_VIRTUAL_IP $KB_VIRTUAL_DEV_NAME add 2>&1" >> $ENDLS
+fi
+
+
+echo "promote begin..." >> $ENDLS
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "$KB_PATH/kingbase_promote.sh $KB_PATH $KB_LD_PATH $KB_USER $KB_DATANAME $KB_PORT $KB_DATA_PATH 2>&1" >> $ENDLS
+
+echo "sync to async" >> $ENDLS
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "$KB_PATH/sync_async.sh $KB_PATH $KB_LD_PATH $KB_DATA_PATH 2>&1" >> $ENDLS
+
+echo "make checkpoint" >> $ENDLS
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "$KB_PATH/kingbase_checkpoint.sh $KB_PATH $KB_LD_PATH $KB_USER $KB_DATANAME $KB_PORT 2>&1" >> $ENDLS
+
+echo "attach primary flag! important" >> $ENDLS
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "echo 1 >  ${KB_DATA_PATH}/${KB_PRIMARY_FLAG} " >> $ENDLS
+
+else
+
+echo "standby down" >> $ENDLS
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "$KB_PATH/sync_async.sh $KB_PATH $KB_LD_PATH $KB_DATA_PATH 2>&1" >> $ENDLS
+
+/usr/bin/ssh -l $KB_EXECUTE_SYS_USER -T $new_master "echo 1 >  ${KB_DATA_PATH}/${KB_PRIMARY_FLAG} " >> $ENDLS
+
+# recover action old master to new standby by hand until network back; to_standby.sh
+fi
+
+

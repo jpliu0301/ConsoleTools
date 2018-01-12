@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+
+<plugin>
+  <extension point="org.eclipse.help.toc">
+    <toc file="toc/tocSql.xml" primary="true"/>
+    <toc file="toc/tocAdmin.xml" primary="true"/>
+    <toc file="toc/tocClient-interfaces.xml" primary="true"/>
+    <toc file="toc/tocServer-programming.xml" primary="true"/>
+    <toc file="toc/tocKingbasecluster.xml" primary="true"/>
+    <toc file="toc/tocReference.xml" primary="true"/>
+    <toc file="toc/tocInternals.xml" primary="true"/>
+  </extension>
+</plugin>
